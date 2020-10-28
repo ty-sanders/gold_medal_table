@@ -1,0 +1,516 @@
+---
+title: "Olympic Dominance: RStudio Table Contest Submission"
+author: "Tyler Sanders - Red Oak Strategic"
+date: "11/18/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(include = FALSE)
+```
+
+```{r}
+#devtools::install_github("haozhu233/kableExtra") #install most updated version of KableExtra from github 
+
+library(tidyverse)
+library(here) #file path control 
+library(knitr)
+library(kableExtra)
+library(formattable)
+library(dplyr)
+library(sparkline)
+library(janitor)
+sparkline(0) # needed for sparkline creation
+
+```
+
+
+
+```{r}
+
+# Summer Olympics 
+# -----------------------------
+
+summer <- here("data", "summer.csv") %>% 
+  read_csv() %>% 
+  select(-Athlete, -City) %>% 
+  distinct()
+
+#check Medal Column
+dput(unique(summer$Medal))
+
+#check Gender Column
+dput(unique(summer$Gender))
+
+
+summer <- summer %>% 
+  mutate(Medal = case_when(Medal %in% "Gold" ~ "Gold",
+                           Medal %in% "Silver" ~ "Silver",
+                           Medal %in% "Bronze" ~ "Bronze")) %>% 
+  mutate(Medal = factor(Medal, levels = c("Gold", "Silver", "Bronze")))
+
+top_10 <- summer %>% 
+  filter(Year > 1999) %>% 
+  group_by(Country) %>% 
+  summarise(sum = n()) %>% 
+  arrange(desc(sum)) %>% 
+  head(10) %>% 
+  pull(Country)
+
+summer_medals <- summer %>% 
+  filter(Year > 1999, Country %in% top_10) %>% 
+  group_by(Country, Medal, Year) %>% 
+  summarise(sum = n()) %>% 
+  relocate(Year, everything())
+
+summer_medals %>% 
+  group_by(Country, Medal, Year) %>% 
+  mutate(by_medal_total = sum(sum)) %>% 
+  ungroup() %>% 
+  group_by(Country) %>% 
+  mutate(full_total = sum(by_medal_total))
+
+summer_medals_wide <- summer_medals %>% 
+  arrange(Country %in% top_10) %>% 
+  pivot_wider(names_from = Year, values_from = sum) %>% 
+  group_by(Country, Medal) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(by_medal_total = sum(`2000`, `2004`, `2008`, `2012`))
+
+summer_subtotals <- summer_medals_wide %>% 
+  group_by(Country) %>% 
+  mutate(`2000` = sum(`2000`),
+         `2004` = sum(`2004`),
+         `2008` = sum(`2008`),
+         `2012` = sum(`2012`)) %>% 
+  select(-Medal, -by_medal_total) %>% 
+  distinct() %>% 
+  mutate(Medal = "Subtotal",
+         by_medal_total = sum(`2000`, `2004`, `2008`, `2012`)) %>% 
+  relocate(Medal, .after = Country)
+
+summer_final <- summer_medals_wide %>%
+  bind_rows(summer_subtotals) %>% 
+  mutate(Country = factor(Country, levels = c(top_10))) %>% 
+  arrange(Country) %>% 
+  ungroup()
+
+
+
+
+```
+
+```{r}
+
+summer_spark <- summer_medals %>%
+  group_by(Country, Medal) %>% 
+  group_nest() %>% 
+  mutate(data = map(data, ~spk_chr(.x$sum))) %>%   
+  unnest(data)
+
+
+summer_subtotals_spark <- summer_subtotals  %>% 
+  select(-by_medal_total) %>% 
+  pivot_longer(c(-Country, -Medal), names_to = "year", values_to = "sum") %>% 
+  group_by(Country, Medal) %>% 
+  group_nest() %>% 
+  mutate(data = map(data, ~spk_chr(.x$sum))) %>% 
+  mutate(Country = factor(Country, levels = c(top_10))) %>% 
+  arrange(Country) %>% 
+  unnest(data)
+
+summer_sparks <- summer_spark %>% 
+  bind_rows(summer_subtotals_spark) %>% 
+  mutate(Medal = case_when(Medal %in% "Gold" ~ "Gold",
+                           Medal %in% "Silver" ~ "Silver",
+                           Medal %in% "Bronze" ~ "Bronze",
+                           TRUE ~ "Subtotal")) %>% 
+  mutate(Country = factor(Country, levels = c(top_10))) %>% 
+  arrange(Country) 
+
+```
+
+```{r}
+# Improving Table Step by Step for Tutorial: Final Table at the end 
+
+#basic kable table 
+kbl(summer_final)
+```
+
+
+```{r}
+# add colnames
+
+summer_final %>%
+  kbl(format      = "html", 
+        escape      = F,
+        format.args = list(big.mark = ","),
+        col.names   = c("Country", "Medal", "2000", "2004", "2008", "2012", "Medal Total"),
+        align       = c("c", "c", "c", "c", "c")) 
+
+```
+
+```{r}
+# add headers 
+summer_final %>%
+  kbl(format      = "html", 
+        escape      = F,
+        format.args = list(big.mark = ","),
+        col.names   = c("Country", "Medal", "2000", "2004", "2008", "2012", "Medal Total"),
+        align       = c("c", "c", "c", "c", "c")) %>%
+  kable_minimal(lightable_options = "hover") %>% 
+  add_header_above(c(" " = 2, "Sydney, AUS"  = 1, "Athens, GRE" = 1,
+                              "Beijing, CHN" = 1, "London, GBR" = 1, " " = 1)) %>% 
+  add_header_above(c(" " = 2, "10 Ten Countries by Summer Olympic Medals: 2000-2012" = 4, " " = 1)) 
+
+
+```
+
+
+```{r}
+# add col_spec bold totals 
+summer_final %>%
+  kbl(format      = "html", 
+        escape      = F,
+        format.args = list(big.mark = ","),
+        col.names   = c("Country", "Medal", "2000", "2004", "2008", "2012", "Medal Total"),
+        align       = c("c", "c", "c", "c", "c")) %>%
+  kable_minimal(lightable_options = "hover") %>% 
+  add_header_above(c(" " = 2, "Sydney, AUS" = 1, "Athens, GRE" = 1, "Beijing, CHN" = 1, "London, GBR" = 1, " " = 1)) %>% 
+  add_header_above(c(" " = 2, "10 Ten Countries by Summer Olympic Medals: 2000-2012" = 4, " " = 1)) %>% 
+  row_spec((1:10*4), bold = T, color = "black", background = "white")
+
+
+
+```
+
+```{r}
+# add styling and font size
+
+summer_final %>%
+  kbl(format      = "html", 
+        escape      = F,
+        format.args = list(big.mark = ","),
+        col.names   = c("Country", "Medal", "2000", "2004", "2008", "2012", "Medal Total"),
+        align       = c("c", "c", "c", "c", "c")) %>%
+  kable_minimal(lightable_options = "hover") %>% 
+  add_header_above(c(" " = 2, "Sydney, AUS" = 1, "Athens, GRE" = 1, "Beijing, CHN" = 1, "London, GBR" = 1, " " = 1)) %>% 
+  add_header_above(c(" " = 2, "10 Ten Countries by Summer Olympic Medals: 2000-2012" = 4, " " = 1)) %>% 
+  kable_styling(position      = "center",
+                latex_options = "striped",
+                font_size = 20) %>% 
+  row_spec((1:10*4), bold = T, color = "black", background = "white")
+  
+
+```
+
+```{r}
+#add pack rows
+
+
+summer_final %>%
+  select(-Country) %>%
+  kbl(format      = "html", 
+        escape      = F,
+        format.args = list(big.mark = ","),
+        col.names   = c("Medal", "2000", "2004", "2008", "2012", "Medal Total"),
+        align       = c("c", "c", "c", "c", "c")) %>%
+  kable_minimal(lightable_options = "hover") %>% 
+  add_header_above(c(" " = 1, "Sydney, AUS" = 1, "Athens, GRE" = 1, "Beijing, CHN" = 1, "London, GBR" = 1, " " = 1)) %>% 
+  add_header_above(c(" " = 1, "10 Ten Countries by Summer Olympic Medals: 2000-2012" = 4, " " = 1)) %>% 
+  kable_styling(position      = "center",
+                latex_options = "striped",
+                font_size = 20) %>%
+  pack_rows("#1 United States", 1,  4) %>%
+  pack_rows("#2 Russia",        5,  8)  %>%
+  pack_rows("#3 China",         9,  12) %>%
+  pack_rows("#4 Germany",       13, 16) %>% 
+  pack_rows("#5 Australia",     17, 20) %>%
+  pack_rows("#6 Great Britain", 21, 24) %>%
+  pack_rows("#7 France",        25, 28) %>% 
+  pack_rows("#8 Italy",         29, 32) %>%
+  pack_rows("#9 South Korea",   33, 36) %>%
+  pack_rows("#10 Japan",        37, 40) %>% 
+  row_spec((1:10*4), bold = T, color = "black", background = "white") 
+
+
+```
+
+
+```{r include=FALSE}
+
+#add images 
+
+summer_final %>%
+  left_join(y = summer_sparks, by = c("Country", "Medal")) %>% 
+  select(-Country) %>% #drop Country and re-insert manually later with pack_rows() 
+  mutate(logo = "") %>%
+  relocate(logo, .after = Medal) %>%
+  select(-Medal) %>%
+  kbl(format      = "html", 
+        escape      = FALSE,
+        format.args = list(big.mark = ","),
+        col.names   = c("Medal", "2000", "2004", "2008", "2012", "Medal Total", "Trendline"),
+        align       = c("c", "c", "c", "c", "c")) %>%
+  kable_minimal(lightable_options = "hover") %>% 
+  add_header_above(c(" " = 1, "Sydney, AUS" = 1, "Athens, GRE" = 1, "Beijing, CHN" = 1, "London, GBR" = 1, " " = 2)) %>% 
+  add_header_above(c(" " = 1, "10 Ten Countries by Summer Olympic Medals: 2000-2012" = 4, " " = 2)) %>% 
+  kable_styling(position      = "center",
+                latex_options = "striped",
+                font_size = 20) %>%
+  pack_rows("#1 United States", 1,  4) %>%
+  pack_rows("#2 Russia",        5,  8)  %>%
+  pack_rows("#3 China",         9,  12) %>%
+  pack_rows("#4 Germany",       13, 16) %>% 
+  pack_rows("#5 Australia",     17, 20) %>%
+  pack_rows("#6 Great Britain", 21, 24) %>%
+  pack_rows("#7 France",        25, 28) %>% 
+  pack_rows("#8 Italy",         29, 32) %>%
+  pack_rows("#9 South Korea",   33, 36) %>%
+  pack_rows("#10 Japan",        37, 40) %>% 
+  column_spec(1, 
+              image = spec_image(c("gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png"), 150, 150)) %>% 
+  row_spec((1:10*4), bold = TRUE, color = "black", background = "white") %>% 
+  scroll_box(width = "1000px", height = "900px")
+  
+
+
+
+
+```
+
+# Final Table 
+```{r include=TRUE}
+
+summer_final %>%
+  left_join(y = summer_sparks, by = c("Country", "Medal")) %>% #join sparklines data frame 
+  select(-Country) %>% #drop Country and re-insert manually later with pack_rows() 
+  mutate(logo = "") %>% #create blank row to manually insert images into 
+  relocate(logo, .after = Medal) %>% #move logo to the far left of df with new tidyverse relocate()
+  select(-Medal) %>% 
+  kbl(format      = "html", 
+        escape      = FALSE,
+        format.args = list(big.mark = ","),
+        col.names   = c("Medal", "2000", "2004", "2008", "2012", "Medal Total", "Trendline"),
+        align       = c("c", "c", "c", "c", "c")) %>% # center alignment 
+  kable_minimal(lightable_options = "hover") %>% # add kableExtra style and add hoverbar 
+  add_header_above(c(" " = 1, "Sydney, AUS" = 1, "Athens, GRE" = 1, "Beijing, CHN" = 1, "London, GBR" = 1, " " = 2)) %>% 
+  add_header_above(c(" " = 1, "10 Ten Countries by Summer Olympic Medals: 2000-2012" = 4, " " = 2)) %>% 
+  kable_styling(position      = "center",
+                latex_options = "striped",
+                font_size = 20) %>%
+  pack_rows("#1 United States", 1,  4) %>% #add row headers at every 4th row 
+  pack_rows("#2 Russia",        5,  8)  %>%
+  pack_rows("#3 China",         9,  12) %>%
+  pack_rows("#4 Germany",       13, 16) %>% 
+  pack_rows("#5 Australia",     17, 20) %>%
+  pack_rows("#6 Great Britain", 21, 24) %>%
+  pack_rows("#7 France",        25, 28) %>% 
+  pack_rows("#8 Italy",         29, 32) %>%
+  pack_rows("#9 South Korea",   33, 36) %>%
+  pack_rows("#10 Japan",        37, 40) %>% 
+  column_spec(1, 
+              image = spec_image(c("gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png"), 150, 150)) %>% #add images in order and size them to match chart size 
+  row_spec((1:10*4), bold = TRUE, color = "black", background = "white") %>% #bold every fourth row (the subtotals)
+  scroll_box(width = "1000px", height = "900px") # add scrollbox for easy viewing inside web post while maintaining larger fontsize 
+  
+
+
+
+
+```
+
+```{r}
+knitr::knit_exit()
+```
+
+
+
+
+
+
+
+
+## Bonus: Winter Example 
+
+```{r}
+          
+winter <- here("data", "winter.csv") %>% 
+  read_csv() %>% 
+  select(-Athlete, -City) %>% 
+  distinct()
+
+
+dput(unique(winter$Medal))
+# c("Bronze", "Gold", "Silver", "G") <- Oops, data error! There is not a Medal named G, but 
+
+winter %>% 
+  filter(Medal %in% "G")
+# 2014 Skiing Ski Jumping POL     Men    Normal Hill G  <- output 
+
+# https://www.youtube.com/watch?v=l8yboFRTQvw < confirmed gold 
+
+winter <- winter %>% 
+  mutate(Medal = case_when(Medal %in% "Gold" ~ "Gold",
+                           Medal %in% "Silver" ~ "Silver",
+                           Medal %in% "Bronze" ~ "Bronze", 
+                           Medal %in% "G"      ~ "Gold")) %>% 
+  mutate(Medal = factor(Medal, levels = c("Gold", "Silver", "Bronze")))
+
+top_10 <- winter %>% 
+  filter(Year > 1999) %>% 
+  group_by(Country) %>% 
+  summarise(sum = n()) %>% 
+  arrange(desc(sum)) %>% 
+  head(10) %>% 
+  pull(Country)
+
+
+winter_medals <- winter %>% 
+  filter(Year > 1999, Country %in% top_10) %>% 
+  group_by(Country, Medal, Year) %>% 
+  summarise(sum = n()) %>% 
+  relocate(Year, everything())
+
+winter_medals %>% 
+  group_by(Country, Medal, Year) %>% 
+  mutate(by_medal_total = sum(sum)) %>% 
+  ungroup() %>% 
+  group_by(Country) %>% 
+  mutate(full_total = sum(by_medal_total))
+
+
+
+winter_medals_wide <- winter_medals %>% 
+  arrange(Country %in% top_10) %>% 
+  pivot_wider(names_from = Year, values_from = sum) %>% 
+  group_by(Country, Medal) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(by_medal_total = sum(`2002`, `2006`, `2010`, `2014`))
+
+
+winter_medals %>% 
+  arrange(Year, Country) %>% 
+  mutate(spark = sparkline::spk_chr(sum)) %>% 
+  kable(format = "html")
+
+winter_subtotals <- winter_medals_wide %>% 
+  group_by(Country) %>% 
+  mutate(`2002` = sum(`2002`),
+         `2006` = sum(`2006`),
+         `2010` = sum(`2010`),
+         `2014` = sum(`2014`)) %>% 
+  select(-Medal, -by_medal_total) %>% 
+  distinct() %>% 
+  mutate(Medal = "Subtotal",
+         by_medal_total = sum(`2002`, `2006`, `2010`, `2014`)) %>% 
+  relocate(Medal, .after = Country)
+
+
+winter_final <- winter_medals_wide %>%
+  bind_rows(winter_subtotals) %>% 
+  mutate(Country = factor(Country, levels = c(top_10))) %>% 
+  arrange(Country) %>% 
+  ungroup()
+
+
+
+
+```
+
+```{r}
+
+winter_spark <- winter_medals %>%
+  group_by(Country, Medal) %>% 
+  group_nest() %>% 
+  mutate(data = map(data, ~spk_chr(.x$sum))) %>%   
+  unnest(data)
+
+
+winter_subtotals_spark <- winter_subtotals  %>% 
+  select(-by_medal_total) %>% 
+  pivot_longer(c(-Country, -Medal), names_to = "year", values_to = "sum") %>% 
+  group_by(Country, Medal) %>% 
+  group_nest() %>% 
+  mutate(data = map(data, ~spk_chr(.x$sum))) %>% 
+  mutate(Country = factor(Country, levels = c(top_10))) %>% 
+  arrange(Country) %>% 
+  unnest(data)
+
+winter_sparks <- winter_spark %>% 
+  bind_rows(winter_subtotals_spark) %>% 
+  mutate(Medal = case_when(Medal %in% "Gold" ~ "Gold",
+                           Medal %in% "Silver" ~ "Silver",
+                           Medal %in% "Bronze" ~ "Bronze",
+                           TRUE ~ "Subtotal")) %>% 
+  mutate(Country = factor(Country, levels = c(top_10))) %>% 
+  arrange(Country) 
+
+```
+
+```{r include=FALSE}
+
+winter_final %>%
+  left_join(y = winter_sparks, by = c("Country", "Medal")) %>% 
+  select(-Country) %>% #drop Country and re-insert manually later with pack_rows() 
+  mutate(logo = "") %>%  
+  relocate(logo, .after = Medal) %>%
+  select(-Medal) %>%
+  kbl(format      = "html", 
+        escape      = F,
+        format.args = list(big.mark = ","),
+        col.names   = c("Medal", "2002", "2006", "2010", "2014", "Medal Total", "Trendline"),
+        align       = c("c", "c", "c", "c", "c")) %>%
+  kable_minimal(lightable_options = "hover") %>% 
+  add_header_above(c(" " = 1, "Salt Lake, USA" = 1, "Turin, ITA" = 1, "Vancouver, CAN" = 1, "Sochi, RUS" = 1, " " = 2)) %>% 
+  add_header_above(c(" " = 1, "10 Ten Countries by Winter Olympic Medals: 2002-2014" = 4, " " = 2)) %>% 
+  kable_styling(position      = "center",
+                latex_options = "striped",
+                font_size = 20) %>%
+  pack_rows("#1 United States", 1,  4) %>%
+  pack_rows("#2 Germany",       5,  8)  %>%
+  pack_rows("#3 Canada",        9,  12) %>%
+  pack_rows("#4 Norway",        13, 16) %>% 
+  pack_rows("#5 Russia",        17, 20) %>%
+  pack_rows("#6 Austria",       21, 24) %>%
+  pack_rows("#7 Netherlands",   25, 28) %>% 
+  pack_rows("#8 Sweden",        29, 32) %>%
+  pack_rows("#T-9 China",       33, 36) %>%
+  pack_rows("#T-9 France",      37, 40) %>% 
+  column_spec(1, 
+              image = spec_image(c("gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png",
+                                   "gold.png", "silver.png", "bronze.png", "olympic.png"), 150, 150)) %>% 
+  row_spec((1:10*4), bold = T, color = "black", background = "white") %>% 
+  scroll_box(width = "1000px", height = "900px")
+
+```
+
+
+
