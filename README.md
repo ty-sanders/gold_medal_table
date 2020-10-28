@@ -16,4 +16,4 @@ Outputs:
 - olympics.html: A sample output of the final table in .html format 
 
 
-You can read my tutorial here[https://docs.google.com/document/d/1IMLnSo9B8eraeElxjYK-oN1CgWoK9WU9O6KIaNjuT4g/edit?usp=sharing]
+[You Can Read My Tutorial Here!](https://docs.google.com/document/d/1IMLnSo9B8eraeElxjYK-oN1CgWoK9WU9O6KIaNjuT4g/edit?usp=sharing)
