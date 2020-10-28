@@ -1,5 +1,5 @@
 # gold_medal_table
-Code repository behind a submission for the 2020 RStudio Table Contest by Tyler Sanders with Red Oak Strategic. 
+Code repository behind a submission for the 2020 RStudio Table Contest by Tyler Sanders with [Red Oak Strategic](https://redoakstrategic.com/). 
 
 This repository contains the following: 
 
